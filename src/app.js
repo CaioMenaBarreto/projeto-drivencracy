@@ -180,14 +180,16 @@ app.get("/poll/:id/result", async (req, res) => {
         let numeroVotosMaisVotada = 0;
 
         for (const choice of choices) {
-            const choiceId = choice._id.toString();
+            const choiceId = choice._id;
             const numeroVotos = await db.collection("Votos").countDocuments({ choiceId });
-
+            console.log(choiceId);
             if (numeroVotos > numeroVotosMaisVotada) {
                 opcaoMaisVotada = choice;
                 numeroVotosMaisVotada = numeroVotos;
             }
         }
+
+        console.log(numeroVotosMaisVotada);
 
         if (!opcaoMaisVotada) {
             return res.status(200).json({
