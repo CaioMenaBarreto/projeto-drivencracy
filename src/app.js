@@ -57,7 +57,6 @@ app.post("/poll", async (req, res) => {
 app.get("/poll", async (req, res) => {
     try {
         const enquetes = await db.collection("Enquetes").find().toArray();
-        console.log(enquetes);
         return res.status(200).send(enquetes);
 
     } catch (error) {
@@ -93,11 +92,123 @@ app.post("/choice", async (req, res) => {
             return res.status(409).send("O título já está sendo utilizado.");
         }
 
-        const voto = {title, pollId};
-        await db.collection("Escolhas").insertOne(voto);
+        const expirou = dayjs().isAfter(enqueteExistente.expireAt, "minute");
+        if (expirou) {
+            return res.status(403).send("A enquete já expirou.");
+        }
 
-        console.log(voto);
-        res.status(201).send(voto);
+        const choice = { title, pollId };
+        await db.collection("Escolhas").insertOne(choice);
+
+        res.status(201).send(choice);
+
+    } catch (error) {
+        console.error("Erro no servidor:", error.message);
+        return res.status(500).json({ error: "Erro no servidor. Por favor, tente novamente mais tarde." });
+    }
+});
+
+app.get("/poll/:id/choice", async (req, res) => {
+    const id = req.params.id;
+
+    try {
+        const pollObjectId = new ObjectId(id);
+        const enqueteExistente = await db.collection("Enquetes").findOne({ _id: pollObjectId });
+
+        if (!enqueteExistente) {
+            return res.status(404).send("Enquete inexistente.");
+        }
+
+        const choices = await db.collection("Escolhas").find({ pollId: id }).toArray();
+
+        return res.status(200).json(choices);
+
+    } catch (error) {
+        console.error("Erro no servidor:", error.message);
+        return res.status(500).json({ error: "Erro no servidor. Por favor, tente novamente mais tarde." });
+    }
+
+});
+
+app.post("/choice/:id/vote", async (req, res) => {
+    const id = req.params.id;
+
+    try {
+        const choiceObjectId = new ObjectId(id);
+        const escolhaExistente = await db.collection("Escolhas").findOne({ _id: choiceObjectId });
+
+        if (!escolhaExistente) {
+            return res.status(404).send("Escolha inexistente.");
+        };
+
+        const pollObjectId = new ObjectId(escolhaExistente.pollId)
+        const enqueteExistente = await db.collection("Enquetes").findOne(pollObjectId);
+
+        const expirou = dayjs().isAfter(enqueteExistente.expireAt, "minute");
+        if (expirou) {
+            return res.status(403).send("A enquete já expirou.");
+        }
+
+        const voto = {
+            createdAt: dayjs().format("YYYY-MM-DD HH:mm"),
+            choiceId: new ObjectId(id)
+        }
+
+        await db.collection("Votos").insertOne(voto);
+
+        return res.sendStatus(201);
+
+    } catch (error) {
+        console.error("Erro no servidor:", error.message);
+        return res.status(500).json({ error: "Erro no servidor. Por favor, tente novamente mais tarde." });
+    }
+});
+
+app.get("/poll/:id/result", async (req, res) => {
+    const id = req.params.id;
+
+    try {
+        const pollObjectId = new ObjectId(id);
+        const enqueteExistente = await db.collection("Enquetes").findOne({ _id: pollObjectId });
+        if (!enqueteExistente) {
+            return res.status(404).send("Enquete inexistente.");
+        }
+
+        const choices = await db.collection("Escolhas").find({ pollId: id }).toArray();
+
+        let opcaoMaisVotada = null;
+        let numeroVotosMaisVotada = 0;
+
+        for (const choice of choices) {
+            const choiceId = choice._id.toString();
+            const numeroVotos = await db.collection("Votos").countDocuments({ choiceId });
+
+            if (numeroVotos > numeroVotosMaisVotada) {
+                opcaoMaisVotada = choice;
+                numeroVotosMaisVotada = numeroVotos;
+            }
+        }
+
+        if (!opcaoMaisVotada) {
+            return res.status(200).json({
+                _id: enqueteExistente._id,
+                title: enqueteExistente.title,
+                expireAt: enqueteExistente.expireAt,
+                result: "Nenhuma opção de voto com votos encontrada."
+            });
+        }
+
+        const resultado = {
+            _id: enqueteExistente._id,
+            title: enqueteExistente.title,
+            expireAt: enqueteExistente.expireAt,
+            result: {
+                title: opcaoMaisVotada.title,
+                votes: numeroVotosMaisVotada
+            }
+        };
+
+        return res.status(200).json(resultado);
 
     } catch (error) {
         console.error("Erro no servidor:", error.message);
